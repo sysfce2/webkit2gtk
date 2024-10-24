@@ -332,7 +332,7 @@ WebProcess::WebProcess()
 #endif
 
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    addSupplement<RemoteLegacyCDMFactory>();
+    addSupplementWithoutRefCountedCheck<RemoteLegacyCDMFactory>();
 #endif
 
 #if ENABLE(GPU_PROCESS)
@@ -883,7 +883,7 @@ WebPage* WebProcess::focusedWebPage() const
     return 0;
 }
 
-void WebProcess::updateStorageAccessUserAgentStringQuirks(UncheckedKeyHashMap<RegistrableDomain, String>&& userAgentStringQuirk)
+void WebProcess::updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&& userAgentStringQuirk)
 {
     Quirks::updateStorageAccessUserAgentStringQuirks(WTFMove(userAgentStringQuirk));
 }
@@ -1994,19 +1994,20 @@ void WebProcess::setBackForwardCacheCapacity(unsigned capacity)
 
 void WebProcess::clearCachedPage(BackForwardItemIdentifier backForwardItemID, CompletionHandler<void()>&& completionHandler)
 {
-    HistoryItem* item = WebBackForwardListProxy::itemForID(backForwardItemID);
-    if (!item)
-        return completionHandler();
-
-    BackForwardCache::singleton().remove(*item);
+    BackForwardCache::singleton().remove(backForwardItemID);
     completionHandler();
 }
 
 LibWebRTCNetwork& WebProcess::libWebRTCNetwork()
 {
     if (!m_libWebRTCNetwork)
-        m_libWebRTCNetwork = LibWebRTCNetwork::create().moveToUniquePtr();
+        m_libWebRTCNetwork = makeUniqueWithoutRefCountedCheck<LibWebRTCNetwork>(*this);
     return *m_libWebRTCNetwork;
+}
+
+Ref<LibWebRTCNetwork> WebProcess::protectedLibWebRTCNetwork()
+{
+    return libWebRTCNetwork();
 }
 
 void WebProcess::establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType workerType, PageGroupIdentifier pageGroupID, WebPageProxyIdentifier webPageProxyID, PageIdentifier pageID, const WebPreferencesStore& store, RegistrableDomain&& registrableDomain, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&& initializationData, CompletionHandler<void()>&& completionHandler)
@@ -2182,7 +2183,7 @@ void WebProcess::setDomainsWithUserInteraction(HashSet<WebCore::RegistrableDomai
     ResourceLoadObserver::shared().setDomainsWithUserInteraction(WTFMove(domains));
 }
 
-void WebProcess::setDomainsWithCrossPageStorageAccess(UncheckedKeyHashMap<TopFrameDomain, Vector<SubResourceDomain>>&& domains, CompletionHandler<void()>&& completionHandler)
+void WebProcess::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, Vector<SubResourceDomain>>&& domains, CompletionHandler<void()>&& completionHandler)
 {
     for (auto& [domain, subResourceDomains] : domains) {
         for (auto& subResourceDomain : subResourceDomains) {
@@ -2266,7 +2267,7 @@ void WebProcess::setUseGPUProcessForMedia(bool useGPUProcessForMedia)
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     if (useGPUProcessForMedia)
-        legacyCDMFactory().registerFactory();
+        protectedLegacyCDMFactory()->registerFactory();
     else
         LegacyCDM::resetFactories();
 #endif
@@ -2358,6 +2359,11 @@ RemoteLegacyCDMFactory& WebProcess::legacyCDMFactory()
 {
     return *supplement<RemoteLegacyCDMFactory>();
 }
+
+Ref<RemoteLegacyCDMFactory> WebProcess::protectedLegacyCDMFactory()
+{
+    return legacyCDMFactory();
+}
 #endif
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
@@ -2425,6 +2431,11 @@ Ref<RemoteMediaPlayerManager> WebProcess::protectedRemoteMediaPlayerManager()
     return m_remoteMediaPlayerManager;
 }
 #endif
+
+Ref<WebCookieJar> WebProcess::protectedCookieJar()
+{
+    return m_cookieJar;
+}
 
 } // namespace WebKit
 

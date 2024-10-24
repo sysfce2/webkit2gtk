@@ -137,7 +137,7 @@ public:
     void invalidateTilesForPaintingRect(float pageScaleFactor, const WebCore::FloatRect& paintingRect);
 
     // Updates existing tiles. Can result in temporarily stale content.
-    void pdfContentChangedInRect(const WebCore::GraphicsLayer*, float pageScaleFactor, const WebCore::FloatRect& paintingRect, std::optional<PDFLayoutRow>);
+    void pdfContentChangedInRect(const WebCore::GraphicsLayer*, const WebCore::FloatRect& paintingRect, std::optional<PDFLayoutRow>);
 
     void generatePreviewImageForPage(PDFDocumentLayout::PageIndex, float scale);
     RefPtr<WebCore::ImageBuffer> previewImageForPage(PDFDocumentLayout::PageIndex) const;
@@ -215,12 +215,12 @@ private:
 
     ThreadSafeWeakPtr<PDFPresentationController> m_presentationController;
 
-    UncheckedKeyHashMap<WebCore::PlatformLayerIdentifier, Ref<WebCore::GraphicsLayer>> m_layerIDtoLayerMap;
-    UncheckedKeyHashMap<WebCore::TileGridIdentifier, WebCore::PlatformLayerIdentifier> m_tileGridToLayerIDMap;
+    HashMap<WebCore::PlatformLayerIdentifier, Ref<WebCore::GraphicsLayer>> m_layerIDtoLayerMap;
+    HashMap<WebCore::TileGridIdentifier, WebCore::PlatformLayerIdentifier> m_tileGridToLayerIDMap;
 
     Ref<ConcurrentWorkQueue> m_paintingWorkQueue;
 
-    UncheckedKeyHashMap<TileForGrid, TileRenderData> m_currentValidTileRenders;
+    HashMap<TileForGrid, TileRenderData> m_currentValidTileRenders;
 
     const int m_maxConcurrentTileRenders { 4 };
     int m_numConcurrentTileRenders { 0 };
@@ -232,14 +232,14 @@ private:
 
         RefPtr<WebCore::ImageBuffer> protectedBuffer() { return buffer; }
     };
-    UncheckedKeyHashMap<TileForGrid, RenderedTile> m_rendereredTiles;
-    UncheckedKeyHashMap<TileForGrid, RenderedTile> m_rendereredTilesForOldState;
+    HashMap<TileForGrid, RenderedTile> m_rendereredTiles;
+    HashMap<TileForGrid, RenderedTile> m_rendereredTilesForOldState;
 
-    UncheckedKeyHashMap<WebCore::TileGridIdentifier, std::unique_ptr<RevalidationStateForGrid>> m_gridRevalidationState;
+    HashMap<WebCore::TileGridIdentifier, std::unique_ptr<RevalidationStateForGrid>> m_gridRevalidationState;
 
     using PDFPageIndexSet = HashSet<PDFDocumentLayout::PageIndex, IntHash<PDFDocumentLayout::PageIndex>, WTF::UnsignedWithZeroKeyHashTraits<PDFDocumentLayout::PageIndex>>;
-    using PDFPageIndexToPreviewHash = UncheckedKeyHashMap<PDFDocumentLayout::PageIndex, PagePreviewRequest, IntHash<PDFDocumentLayout::PageIndex>, WTF::UnsignedWithZeroKeyHashTraits<PDFDocumentLayout::PageIndex>>;
-    using PDFPageIndexToBufferHash = UncheckedKeyHashMap<PDFDocumentLayout::PageIndex, RefPtr<WebCore::ImageBuffer>, IntHash<PDFDocumentLayout::PageIndex>, WTF::UnsignedWithZeroKeyHashTraits<PDFDocumentLayout::PageIndex>>;
+    using PDFPageIndexToPreviewHash = HashMap<PDFDocumentLayout::PageIndex, PagePreviewRequest, IntHash<PDFDocumentLayout::PageIndex>, WTF::UnsignedWithZeroKeyHashTraits<PDFDocumentLayout::PageIndex>>;
+    using PDFPageIndexToBufferHash = HashMap<PDFDocumentLayout::PageIndex, RefPtr<WebCore::ImageBuffer>, IntHash<PDFDocumentLayout::PageIndex>, WTF::UnsignedWithZeroKeyHashTraits<PDFDocumentLayout::PageIndex>>;
 
     PDFPageIndexToPreviewHash m_enqueuedPagePreviews;
     PDFPageIndexToBufferHash m_pagePreviews;

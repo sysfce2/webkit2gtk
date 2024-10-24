@@ -3597,7 +3597,7 @@ InputTypeColorEnabled:
 
 InputTypeColorEnhancementsEnabled:
   type: bool
-  status: unstable
+  status: stable
   category: html
   condition: ENABLE(INPUT_TYPE_COLOR)
   humanReadableName: "HTML alpha and colorspace attribute support for color inputs"
@@ -3606,8 +3606,10 @@ InputTypeColorEnhancementsEnabled:
     WebKitLegacy:
       default: false
     WebKit:
+      "PLATFORM(COCOA) && !PLATFORM(WATCHOS)": true
       default: false
     WebCore:
+      "PLATFORM(COCOA) && !PLATFORM(WATCHOS)": true
       default: false
   sharedPreferenceForWebProcess: true
 
@@ -4185,8 +4187,6 @@ LinearMediaPlayerEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # FIXME: this line can be removed when WebKitSwift is available in Simulators (see rdar://125735304)
-      "PLATFORM(IOS_FAMILY_SIMULATOR)": false
       default: WebKit::defaultLinearMediaPlayerEnabled()
     WebCore:
       default: false
@@ -5291,8 +5291,6 @@ NotificationsEnabled:
       "PLATFORM(IOS_FAMILY)": false
       default: true
   disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
 
 ObservableEnabled:
   type: bool
@@ -6942,9 +6940,39 @@ SourceBufferChangeTypeEnabled:
       "USE(GSTREAMER)": false
       default: true
 
+SpatialImageControlsEnabled:
+  type: bool
+  status: testable
+  category: media
+  condition: ENABLE(SPATIAL_IMAGE_CONTROLS)
+  humanReadableName: "Spatial image controls API"
+  humanReadableDescription: "Spatial image controls API"
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
 SpatialNavigationEnabled:
   type: bool
   status: embedder
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
+SpatialVideoEnabled:
+  type: bool
+  status: preview
+  category: media
+  humanReadableName: "Spatial video playback enabled"
+  humanReadableDescription: "Spatial video playback enabled"
+  condition: ENABLE(LINEAR_MEDIA_PLAYER)
   defaultValue:
     WebKitLegacy:
       default: false
@@ -7363,11 +7391,11 @@ TiledScrollingIndicatorVisible:
     WebCore:
       default: false
 
-TouchEventsEnabled:
+TouchEventDOMAttributesEnabled:
   type: bool
   status: embedder
-  humanReadableName: "Touch Events"
-  humanReadableDescription: "Enable Touch Events"
+  humanReadableName: "Touch Event DOM Attributes"
+  humanReadableDescription: "Enable Touch Event DOM Attributes"
   condition: ENABLE(TOUCH_EVENTS)
   defaultValue:
     WebCore:

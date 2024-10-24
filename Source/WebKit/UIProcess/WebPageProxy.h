@@ -392,6 +392,7 @@ class ShareableBitmapHandle;
 class ShareableResourceHandle;
 class Site;
 struct TextAnimationData;
+enum class ImageDecodingError : uint8_t;
 enum class ExceptionCode : uint8_t;
 }
 
@@ -543,6 +544,7 @@ struct WebsitePoliciesData;
 struct DMABufRendererBufferFormat;
 #endif
 
+enum class ColorControlSupportsAlpha : bool;
 enum class ContentAsStringIncludesChildFrames : bool;
 enum class DragControllerAction : uint8_t;
 enum class FindDecorationStyle : uint8_t;
@@ -850,6 +852,11 @@ public:
     void navigateToPDFLinkWithSimulatedClick(const String& url, WebCore::IntPoint documentPoint, WebCore::IntPoint screenPoint);
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(std::variant<WebCore::ResourceError, Ref<WebCore::ShareableBitmap>>&&)>&&);
+#if PLATFORM(COCOA)
+    void getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
+    void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    void decodeImageData(Ref<WebCore::SharedBuffer>&&, std::optional<WebCore::FloatSize>, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&&);
+#endif
 
     void simulateDeviceOrientationChange(double alpha, double beta, double gamma);
 
@@ -1044,6 +1051,7 @@ public:
     bool applyAutocorrection(const String& correction, const String& originalText, bool isCandidate);
     void requestAutocorrectionContext();
     void handleAutocorrectionContext(const WebAutocorrectionContext&);
+    void clearSelectionAfterTappingSelectionHighlightIfNeeded(WebCore::FloatPoint);
 #if ENABLE(REVEAL)
     void requestRVItemInCurrentSelectedRange(CompletionHandler<void(const RevealItem&)>&&);
     void prepareSelectionForContextMenuWithLocationInView(WebCore::IntPoint, CompletionHandler<void(bool, const RevealItem&)>&&);
@@ -1174,7 +1182,7 @@ public:
     void getSelectedRangeAsync(CompletionHandler<void(const EditingRange&)>&&);
     void characterIndexForPointAsync(const WebCore::IntPoint&, CompletionHandler<void(uint64_t)>&&);
     void firstRectForCharacterRangeAsync(const EditingRange&, CompletionHandler<void(const WebCore::IntRect&, const EditingRange&)>&&);
-    void setCompositionAsync(const String& text, const Vector<WebCore::CompositionUnderline>&, const Vector<WebCore::CompositionHighlight>&, const UncheckedKeyHashMap<String, Vector<WebCore::CharacterRange>>&, const EditingRange& selectionRange, const EditingRange& replacementRange);
+    void setCompositionAsync(const String& text, const Vector<WebCore::CompositionUnderline>&, const Vector<WebCore::CompositionHighlight>&, const HashMap<String, Vector<WebCore::CharacterRange>>&, const EditingRange& selectionRange, const EditingRange& replacementRange);
     void setWritingSuggestion(const String& text, const EditingRange& selectionRange);
     void confirmCompositionAsync();
 
@@ -1419,6 +1427,8 @@ public:
     void effectiveAppearanceDidChange();
     bool useDarkAppearance() const;
     bool useElevatedUserInterfaceLevel() const;
+    void setUseColorAppearance(bool useDarkAppearance, bool useElevatedUserInterfaceLevel);
+    void setUseDarkAppearanceForTesting(bool);
 
     WebCore::DataOwnerType dataOwnerForPasteboard(PasteboardAccessIntent) const;
 
@@ -1591,6 +1601,7 @@ public:
 #endif
 
     WebProcessProxy& ensureRunningProcess();
+    Ref<WebProcessProxy> ensureProtectedRunningProcess();
     WebProcessProxy& legacyMainFrameProcess() const { return m_legacyMainFrameProcess; }
     WebProcessProxy& siteIsolatedProcess() const { return m_legacyMainFrameProcess; }
     Ref<WebProcessProxy> protectedLegacyMainFrameProcess() const;
@@ -2456,7 +2467,9 @@ public:
 
     void didBeginWritingToolsSession(const WebCore::WritingTools::Session&, const Vector<WebCore::WritingTools::Context>&);
 
-    void proofreadingSessionDidReceiveSuggestions(const WebCore::WritingTools::Session&, const Vector<WebCore::WritingTools::TextSuggestion>&, const WebCore::WritingTools::Context&, bool finished);
+    void proofreadingSessionDidReceiveSuggestions(const WebCore::WritingTools::Session&, const Vector<WebCore::WritingTools::TextSuggestion>&, const WebCore::WritingTools::Context&, bool finished, CompletionHandler<void()>&&);
+
+    void proofreadingSessionDidCompletePartialReplacement(const WebCore::WritingTools::Session&, const Vector<WebCore::WritingTools::TextSuggestion>&, const WebCore::WritingTools::Context&, bool finished, CompletionHandler<void()>&&);
 
     void proofreadingSessionDidUpdateStateForSuggestion(const WebCore::WritingTools::Session&, WebCore::WritingTools::TextSuggestionState, const WebCore::WritingTools::TextSuggestion&, const WebCore::WritingTools::Context&);
 
@@ -2465,6 +2478,10 @@ public:
     void compositionSessionDidReceiveTextWithReplacementRange(const WebCore::WritingTools::Session&, const WebCore::AttributedString&, const WebCore::CharacterRange&, const WebCore::WritingTools::Context&, bool finished);
 
     void writingToolsSessionDidReceiveAction(const WebCore::WritingTools::Session&, WebCore::WritingTools::Action);
+
+    void proofreadingSessionSuggestionTextRectsInRootViewCoordinates(const WebCore::CharacterRange&, CompletionHandler<void(Vector<WebCore::FloatRect>&&)>&&) const;
+    void updateTextVisibilityForActiveWritingToolsSession(const WebCore::CharacterRange&, bool, CompletionHandler<void()>&&);
+    void textPreviewDataForActiveWritingToolsSession(const WebCore::CharacterRange&, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>&&)>&&);
 
     bool isWritingToolsActive() const { return m_isWritingToolsActive; }
 
@@ -2758,7 +2775,7 @@ private:
     void didChangeIntrinsicContentSize(const WebCore::IntSize&);
 
 #if ENABLE(INPUT_TYPE_COLOR)
-    void showColorPicker(const WebCore::Color& initialColor, const WebCore::IntRect&, Vector<WebCore::Color>&&);
+    void showColorPicker(const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&);
 #endif
 
 #if ENABLE(DATALIST_ELEMENT)
@@ -2790,7 +2807,7 @@ private:
     void backForwardSetChildItem(WebCore::BackForwardItemIdentifier, Ref<FrameState>&&);
     void backForwardGoToItem(const WebCore::BackForwardItemIdentifier&, CompletionHandler<void(const WebBackForwardListCounts&)>&&);
     void backForwardListContainsItem(const WebCore::BackForwardItemIdentifier&, CompletionHandler<void(bool)>&&);
-    void backForwardItemAtIndex(int32_t index, WebCore::FrameIdentifier, CompletionHandler<void(std::optional<WebCore::BackForwardItemIdentifier>&&)>&&);
+    void backForwardItemAtIndex(int32_t index, WebCore::FrameIdentifier, CompletionHandler<void(RefPtr<FrameState>&&)>&&);
     void backForwardListCounts(CompletionHandler<void(WebBackForwardListCounts&&)>&&);
     void backForwardClear();
     void backForwardGoToProvisionalItem(IPC::Connection&, WebCore::BackForwardItemIdentifier, CompletionHandler<void(const WebBackForwardListCounts&)>&&);
@@ -3517,7 +3534,7 @@ private:
     bool m_madeViewBlankDueToLackOfRenderingUpdate { false };
 
 #if PLATFORM(COCOA)
-    using TemporaryPDFFileMap = UncheckedKeyHashMap<String, String>;
+    using TemporaryPDFFileMap = HashMap<String, String>;
     TemporaryPDFFileMap m_temporaryPDFFiles;
     std::unique_ptr<WebCore::RunLoopObserver> m_activityStateChangeDispatcher;
 
@@ -3581,10 +3598,10 @@ private:
     bool m_preferFasterClickOverDoubleTap { false };
     bool m_alwaysUseRelatedPageProcess { false };
 
-    UncheckedKeyHashMap<String, Ref<WebURLSchemeHandler>> m_urlSchemeHandlersByScheme;
+    HashMap<String, Ref<WebURLSchemeHandler>> m_urlSchemeHandlersByScheme;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-    using IdentifierToAttachmentMap = UncheckedKeyHashMap<String, Ref<API::Attachment>>;
+    using IdentifierToAttachmentMap = HashMap<String, Ref<API::Attachment>>;
     IdentifierToAttachmentMap m_attachmentIdentifierToAttachmentMap;
 #endif
 

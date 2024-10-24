@@ -95,6 +95,7 @@
 #include "InspectorClient.h"
 #include "InspectorController.h"
 #include "InspectorInstrumentation.h"
+#include "IntelligenceTextEffectsSupport.h"
 #include "LayoutDisallowedScope.h"
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
@@ -543,7 +544,7 @@ void Page::firstTimeInitialization()
     });
 }
 
-void Page::clearPreviousItemFromAllPages(HistoryItem* item)
+void Page::clearPreviousItemFromAllPages(BackForwardItemIdentifier itemID)
 {
     for (auto& page : allPages()) {
         RefPtr localMainFrame = dynamicDowncast<LocalFrame>(page->mainFrame());
@@ -551,7 +552,7 @@ void Page::clearPreviousItemFromAllPages(HistoryItem* item)
             return;
 
         CheckedRef controller = localMainFrame->history();
-        if (item == controller->previousItem()) {
+        if (controller->previousItem() && controller->previousItem()->identifier() == itemID) {
             controller->clearPreviousItem();
             return;
         }
@@ -3930,7 +3931,7 @@ void Page::setUseSystemAppearance(bool value)
     });
 }
 
-void Page::effectiveAppearanceDidChange(bool useDarkAppearance, bool useElevatedUserInterfaceLevel)
+void Page::setUseColorAppearance(bool useDarkAppearance, bool useElevatedUserInterfaceLevel)
 {
 #if ENABLE(DARK_MODE_CSS)
     if (m_useDarkAppearance == useDarkAppearance && m_useElevatedUserInterfaceLevel == useElevatedUserInterfaceLevel)
@@ -3958,16 +3959,22 @@ bool Page::useDarkAppearance() const
 {
 #if ENABLE(DARK_MODE_CSS)
     RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
-    RefPtr view = localMainFrame ? localMainFrame->view() : nullptr;
+
+    // FIXME: If this page is being printed, this function should return false.
+    // Currently remote mainFrame() does not have this information.
+    if (!localMainFrame)
+        return m_useDarkAppearance;
+
+    RefPtr view = localMainFrame->view();
     if (!view || view->mediaType() != screenAtom())
         return false;
+
     if (m_useDarkAppearanceOverride)
         return m_useDarkAppearanceOverride.value();
 
     if (RefPtr documentLoader = localMainFrame->loader().documentLoader()) {
-        auto colorSchemePreference = documentLoader->colorSchemePreference();
-        if (colorSchemePreference != ColorSchemePreference::NoPreference)
-            return colorSchemePreference == ColorSchemePreference::Dark;
+        if (documentLoader->colorSchemePreference() == ColorSchemePreference::Dark)
+            return true;
     }
 
     return m_useDarkAppearance;
@@ -5006,6 +5013,11 @@ void Page::proofreadingSessionDidReceiveSuggestions(const WritingTools::Session&
     m_writingToolsController->proofreadingSessionDidReceiveSuggestions(session, suggestions, context, finished);
 }
 
+void Page::proofreadingSessionDidCompletePartialReplacement(const WritingTools::Session& session, const Vector<WritingTools::TextSuggestion>& suggestions, const WritingTools::Context& context, bool finished)
+{
+    m_writingToolsController->proofreadingSessionDidCompletePartialReplacement(session, suggestions, context, finished);
+}
+
 void Page::proofreadingSessionDidUpdateStateForSuggestion(const WritingTools::Session& session, WritingTools::TextSuggestion::State state, const WritingTools::TextSuggestion& suggestion, const WritingTools::Context& context)
 {
     m_writingToolsController->proofreadingSessionDidUpdateStateForSuggestion(session, state, suggestion, context);
@@ -5039,6 +5051,60 @@ void Page::respondToUnappliedWritingToolsEditing(EditCommandComposition* command
 void Page::respondToReappliedWritingToolsEditing(EditCommandComposition* command)
 {
     m_writingToolsController->respondToReappliedEditing(command);
+}
+
+Vector<FloatRect> Page::proofreadingSessionSuggestionTextRectsInRootViewCoordinates(const CharacterRange& enclosingRangeRelativeToSessionRange) const
+{
+    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
+    RefPtr document = localMainFrame ? localMainFrame->document() : nullptr;
+    if (!document) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+
+    auto scope = m_writingToolsController->activeSessionRange();
+    if (!scope) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+
+    return IntelligenceTextEffectsSupport::writingToolsTextSuggestionRectsInRootViewCoordinates(*document, *scope, enclosingRangeRelativeToSessionRange);
+}
+
+void Page::updateTextVisibilityForActiveWritingToolsSession(const CharacterRange& rangeRelativeToSessionRange, bool visible)
+{
+    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
+    RefPtr document = localMainFrame ? localMainFrame->document() : nullptr;
+    if (!document) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    auto scope = m_writingToolsController->activeSessionRange();
+    if (!scope) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    IntelligenceTextEffectsSupport::updateTextVisibility(*document, *scope, rangeRelativeToSessionRange, visible);
+}
+
+std::optional<TextIndicatorData> Page::textPreviewDataForActiveWritingToolsSession(const CharacterRange& rangeRelativeToSessionRange)
+{
+    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
+    RefPtr document = localMainFrame ? localMainFrame->document() : nullptr;
+    if (!document) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    auto scope = m_writingToolsController->activeSessionRange();
+    if (!scope) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    return IntelligenceTextEffectsSupport::textPreviewDataForRange(*document, *scope, rangeRelativeToSessionRange);
 }
 
 std::optional<SimpleRange> Page::contextRangeForActiveWritingToolsSession() const

@@ -33,9 +33,11 @@ JSBaseAudioContext.cpp
 JSBiquadFilterNode.cpp
 JSBlobEvent.cpp
 JSBroadcastChannel.cpp
+JSCSSFontFaceRule.cpp
 JSCSSGroupingRule.cpp
 JSCSSHWB.cpp
 JSCSSImportRule.cpp
+JSCSSKeyframeRule.cpp
 JSCSSKeyframesRule.cpp
 JSCSSMathClamp.cpp
 JSCSSMathInvert.cpp
@@ -45,12 +47,15 @@ JSCSSMathNegate.cpp
 JSCSSMathProduct.cpp
 JSCSSMathSum.cpp
 JSCSSMatrixComponent.cpp
+JSCSSNestedDeclarations.cpp
 JSCSSNumericArray.cpp
+JSCSSPageRule.cpp
 JSCSSRotate.cpp
 JSCSSRuleList.cpp
 JSCSSSkew.cpp
 JSCSSSkewX.cpp
 JSCSSSkewY.cpp
+JSCSSStyleDeclaration.cpp
 JSCSSStyleRule.cpp
 JSCSSTransformValue.cpp
 JSCSSTranslate.cpp
@@ -109,6 +114,7 @@ JSEXTDisjointTimerQueryWebGL2.cpp
 JSElement.cpp
 JSElementInternals.cpp
 JSEventSource.cpp
+JSEventTarget.cpp
 JSFetchEvent.cpp
 JSFetchRequest.cpp
 JSFetchRequestInit.cpp
@@ -222,6 +228,7 @@ JSMediaStreamAudioDestinationNode.cpp
 JSMediaStreamAudioSourceNode.cpp
 JSMediaStreamTrack.cpp
 JSMessageChannel.cpp
+JSMessageEvent.cpp
 JSMessagePort.cpp
 JSMouseEvent.cpp
 JSMutationEvent.cpp
@@ -453,6 +460,7 @@ Modules/WebGPU/Implementation/WebGPUXRBindingImpl.cpp
 Modules/airplay/WebMediaSessionManager.cpp
 Modules/applepay-ams-ui/ApplePayAMSUIPaymentHandler.cpp
 Modules/applepay/ApplePaySession.cpp
+Modules/applepay/ApplePaySetup.cpp
 Modules/applepay/PaymentCoordinator.cpp
 Modules/applepay/PaymentSession.cpp
 Modules/applepay/paymentrequest/ApplePayPaymentHandler.cpp
@@ -464,7 +472,6 @@ Modules/cache/DOMCache.cpp
 Modules/cache/DOMCacheStorage.cpp
 Modules/cache/RetrieveRecordsOptions.h
 Modules/cache/WindowOrWorkerGlobalScopeCaches.cpp
-Modules/cookie-store/CookieStore.cpp
 Modules/credentialmanagement/CredentialsContainer.cpp
 Modules/encryptedmedia/CDM.cpp
 Modules/encryptedmedia/MediaKeySession.cpp
@@ -756,6 +763,7 @@ bindings/js/JSAudioWorkletGlobalScopeCustom.cpp
 bindings/js/JSCSSRuleCustom.cpp
 bindings/js/JSCSSRuleCustom.h
 bindings/js/JSCSSRuleListCustom.cpp
+bindings/js/JSCSSStyleDeclarationCustom.cpp
 bindings/js/JSCanvasRenderingContext2DCustom.cpp
 bindings/js/JSCustomElementInterface.cpp
 bindings/js/JSCustomElementRegistryCustom.cpp
@@ -789,6 +797,7 @@ bindings/js/JSDOMWindowCustom.cpp
 bindings/js/JSDOMWindowProperties.cpp
 bindings/js/JSDOMWindowProperties.h
 bindings/js/JSDOMWrapperCache.h
+bindings/js/JSDeprecatedCSSOMValueCustom.cpp
 bindings/js/JSDocumentCustom.cpp
 bindings/js/JSElementCustom.cpp
 bindings/js/JSElementInternalsCustom.cpp

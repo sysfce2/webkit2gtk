@@ -58,6 +58,7 @@
 #include "UserData.h"
 #include "WebAutomationSession.h"
 #include "WebBackForwardCache.h"
+#include "WebBackForwardListFrameItem.h"
 #include "WebBackForwardListItem.h"
 #include "WebCompiledContentRuleList.h"
 #include "WebFrameProxy.h"
@@ -198,11 +199,7 @@ RefPtr<WebProcessProxy> WebProcessProxy::processForIdentifier(ProcessIdentifier 
 
 RefPtr<WebProcessProxy> WebProcessProxy::processForConnection(const IPC::Connection& connection)
 {
-    for (Ref webProcessProxy : allProcesses()) {
-        if (webProcessProxy->hasConnection(connection))
-            return webProcessProxy.ptr();
-    }
-    return nullptr;
+    return dynamicDowncast<WebProcessProxy>(AuxiliaryProcessProxy::fromConnection(connection));
 }
 
 auto WebProcessProxy::globalPageMap() -> WebPageProxyMap&
@@ -628,7 +625,7 @@ bool WebProcessProxy::shouldSendPendingMessage(const PendingMessage& message)
         if (!pageID)
             return false;
         auto destinationID = decoder->destinationID();
-        auto backForwardItemID = parameters->backForwardItemID;
+        auto frameState = parameters->frameState;
         auto completionHandler = [weakThis = WeakPtr { *this }, parameters = WTFMove(parameters), destinationID] (std::optional<SandboxExtension::Handle> sandboxExtension) mutable {
             if (!weakThis)
                 return;
@@ -637,7 +634,7 @@ bool WebProcessProxy::shouldSendPendingMessage(const PendingMessage& message)
             weakThis->send(Messages::WebPage::GoToBackForwardItem(WTFMove(*parameters)), destinationID);
         };
         if (RefPtr page = WebProcessProxy::webPage(*pageID)) {
-            if (RefPtr item = WebBackForwardListItem::itemForID(backForwardItemID))
+            if (RefPtr item = WebBackForwardListItem::itemForID(*frameState->identifier))
                 page->maybeInitializeSandboxExtensionHandle(static_cast<WebProcessProxy&>(*this), URL { item->url() }, item->resourceDirectoryURL(), true, WTFMove(completionHandler));
         } else
             completionHandler(std::nullopt);
@@ -935,6 +932,15 @@ void WebProcessProxy::didDestroyWebUserContentControllerProxy(WebUserContentCont
     m_webUserContentControllerProxies.remove(proxy);
 }
 
+static bool networkProcessWillCheckBlobFileAccess()
+{
+#if PLATFORM(COCOA)
+    return WTF::linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::BlobFileAccessEnforcement);
+#else
+    return true;
+#endif
+}
+
 void WebProcessProxy::assumeReadAccessToBaseURL(WebPageProxy& page, const String& urlString, CompletionHandler<void()>&& completionHandler, bool directoryOnly)
 {
     URL url { urlString };
@@ -960,6 +966,10 @@ void WebProcessProxy::assumeReadAccessToBaseURL(WebPageProxy& page, const String
         weakPage->addPreviouslyVisitedPath(path);
         completionHandler();
     };
+
+    if (!networkProcessWillCheckBlobFileAccess())
+        return afterAllowAccess();
+
     if (directoryOnly)
         afterAllowAccess();
     else
@@ -985,6 +995,9 @@ void WebProcessProxy::assumeReadAccessToBaseURLs(WebPageProxy& page, const Vecto
         paths.append(path);
     }
     if (!paths.size())
+        return completionHandler();
+
+    if (!networkProcessWillCheckBlobFileAccess())
         return completionHandler();
 
     dataStore->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess(coreProcessIdentifier(), WTFMove(paths)), [weakThis = WeakPtr { *this }, weakPage = WeakPtr { page }, paths, completionHandler = WTFMove(completionHandler)] mutable {
@@ -1099,20 +1112,24 @@ bool WebProcessProxy::isAllowedToUpdateBackForwardItem(WebBackForwardListItem& i
     return false;
 }
 
-void WebProcessProxy::updateBackForwardItem(Ref<FrameState>&& mainFrameState)
+void WebProcessProxy::updateBackForwardItem(Ref<FrameState>&& frameState)
 {
-    RefPtr item = mainFrameState->identifier ? WebBackForwardListItem::itemForID(*mainFrameState->identifier) : nullptr;
+    RefPtr frameItem = frameState->identifier ? WebBackForwardListFrameItem::itemForID(*frameState->identifier) : nullptr;
+    if (!frameItem)
+        return;
+
+    RefPtr item = frameItem->backForwardListItem();
     if (!item || !isAllowedToUpdateBackForwardItem(*item))
         return;
 
-    if (!!item->backForwardCacheEntry() != mainFrameState->hasCachedPage) {
-        if (mainFrameState->hasCachedPage)
+    if (!!item->backForwardCacheEntry() != frameState->hasCachedPage) {
+        if (frameState->hasCachedPage)
             protectedProcessPool()->checkedBackForwardCache()->addEntry(*item, coreProcessIdentifier());
         else if (!item->suspendedPage())
             protectedProcessPool()->checkedBackForwardCache()->removeEntry(*item);
     }
 
-    item->setRootFrameState(WTFMove(mainFrameState));
+    frameItem->setFrameState(WTFMove(frameState));
 }
 
 void WebProcessProxy::getNetworkProcessConnection(CompletionHandler<void(NetworkProcessConnectionInfo&&)>&& reply)

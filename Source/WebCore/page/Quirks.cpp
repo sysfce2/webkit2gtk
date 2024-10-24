@@ -336,7 +336,7 @@ bool Quirks::shouldDisableWritingSuggestionsByDefault() const
     return url.host() == "mail.google.com"_s;
 }
 
-void Quirks::updateStorageAccessUserAgentStringQuirks(UncheckedKeyHashMap<RegistrableDomain, String>&& userAgentStringQuirks)
+void Quirks::updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&& userAgentStringQuirks)
 {
     auto& quirks = updatableStorageAccessUserAgentStringQuirks();
     quirks.clear();
@@ -395,11 +395,12 @@ bool Quirks::shouldDisableElementFullscreenQuirk() const
 #endif
 }
 
-#if ENABLE(TOUCH_EVENTS)
 bool Quirks::isAmazon() const
 {
     return PublicSuffixStore::singleton().topPrivatelyControlledDomain(m_document->topDocument().url().host()).startsWith("amazon."_s);
 }
+
+#if ENABLE(TOUCH_EVENTS)
 
 bool Quirks::isGoogleMaps() const
 {
@@ -647,7 +648,7 @@ bool Quirks::needsPrimeVideoUserSelectNoneQuirk() const
         return false;
 
     if (!m_needsPrimeVideoUserSelectNoneQuirk)
-        m_needsPrimeVideoUserSelectNoneQuirk = m_document->url().host() == "www.amazon.com"_s;
+        m_needsPrimeVideoUserSelectNoneQuirk = isAmazon();
 
     return *m_needsPrimeVideoUserSelectNoneQuirk;
 #else
@@ -872,6 +873,7 @@ bool Quirks::needsPreloadAutoQuirk() const
 
 // vimeo.com rdar://56996057
 // docs.google.com rdar://59893415
+// bing.com rdar://133223599
 bool Quirks::shouldBypassBackForwardCache() const
 {
     if (!needsQuirks())
@@ -889,6 +891,13 @@ bool Quirks::shouldBypassBackForwardCache() const
     if (topURL.protocolIs("https"_s) && host == "vimeo.com"_s) {
         if (auto* documentLoader = document->frame() ? document->frame()->loader().documentLoader() : nullptr)
             return documentLoader->response().cacheControlContainsNoStore();
+    }
+
+    // Spinner issue from image search for bing.com.
+    if (registrableDomain == "bing.com"_s) {
+        static MainThreadNeverDestroyed<const AtomString> imageSearchDialogID("sb_sbidialog"_s);
+        if (RefPtr element = document->getElementById(imageSearchDialogID.get()))
+            return element->renderer();
     }
 
     // Login issue on bankofamerica.com (rdar://104938789).
@@ -1868,5 +1877,14 @@ bool Quirks::shouldHideCoarsePointerCharacteristics() const
 
     return false;
 }
+
+#if ENABLE(TOUCH_EVENTS)
+
+bool Quirks::shouldOmitTouchEventDOMAttributesForDesktopWebsite(const URL& requestURL)
+{
+    return requestURL.host() == "secure.chase.com"_s;
+}
+
+#endif
 
 }

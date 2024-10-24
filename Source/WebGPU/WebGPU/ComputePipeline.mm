@@ -58,7 +58,7 @@ static id<MTLComputePipelineState> createComputePipelineState(id<MTLDevice> devi
     return computePipelineState;
 }
 
-static std::optional<MTLSize> metalSize(auto workgroupSize, const UncheckedKeyHashMap<String, WGSL::ConstantValue>& wgslConstantValues)
+static std::optional<MTLSize> metalSize(auto workgroupSize, const HashMap<String, WGSL::ConstantValue>& wgslConstantValues)
 {
     auto width = WGSL::evaluate(*workgroupSize.width, wgslConstantValues);
     auto height = workgroupSize.height ? WGSL::evaluate(*workgroupSize.height, wgslConstantValues) : 1;
@@ -91,7 +91,7 @@ std::pair<Ref<ComputePipeline>, NSString*> Device::createComputePipeline(const W
     auto entryPointName = descriptor.compute.entryPoint ? fromAPI(descriptor.compute.entryPoint) : shaderModule.defaultComputeEntryPoint();
     NSError *error;
     BufferBindingSizesForPipeline minimumBufferSizes;
-    auto libraryCreationResult = createLibrary(m_device, shaderModule, &pipelineLayout, entryPointName, label, descriptor.compute.constantCount, descriptor.compute.constants, minimumBufferSizes, &error);
+    auto libraryCreationResult = createLibrary(m_device, shaderModule, &pipelineLayout, entryPointName, label, descriptor.compute.constantsSpan(), minimumBufferSizes, &error);
     if (!libraryCreationResult || &pipelineLayout.device() != this)
         return returnInvalidComputePipeline(*this, isAsync, error.localizedDescription ?: @"Compute library failed creation");
 
@@ -185,11 +185,6 @@ Ref<BindGroupLayout> ComputePipeline::getBindGroupLayout(uint32_t groupIndex)
 void ComputePipeline::setLabel(String&&)
 {
     // MTLComputePipelineState's labels are read-only.
-}
-
-PipelineLayout& ComputePipeline::pipelineLayout() const
-{
-    return m_pipelineLayout;
 }
 
 const BufferBindingSizesForBindGroup* ComputePipeline::minimumBufferSizes(uint32_t index) const

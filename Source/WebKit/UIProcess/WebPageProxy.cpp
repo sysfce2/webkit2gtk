@@ -67,6 +67,7 @@
 #include "AuthenticatorManager.h"
 #include "BrowsingContextGroup.h"
 #include "BrowsingWarning.h"
+#include "ColorControlSupportsAlpha.h"
 #include "Connection.h"
 #include "CoroutineUtilities.h"
 #include "DidFilterKnownLinkDecoration.h"
@@ -745,7 +746,7 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
 #if ENABLE(CONTEXT_MENUS)
     , m_contextMenuClient(makeUnique<API::ContextMenuClient>())
 #endif
-    , m_navigationState(makeUniqueRef<WebNavigationState>(*this))
+    , m_navigationState(makeUniqueRefWithoutRefCountedCheck<WebNavigationState>(*this))
     , m_generatePageLoadTimingTimer(RunLoop::main(), this, &WebPageProxy::didEndNetworkRequestsForPageLoadTimingTimerFired)
     , m_legacyMainFrameProcess(process)
     , m_pageGroup(*configuration->pageGroup())
@@ -1543,7 +1544,7 @@ void WebPageProxy::didAttachToRunningProcess()
 
 #if ENABLE(WEBXR) && !USE(OPENXR)
     ASSERT(!internals().xrSystem);
-    internals().xrSystem = makeUnique<PlatformXRSystem>(*this);
+    internals().xrSystem = PlatformXRSystem::create(*this);
 #endif
 }
 
@@ -1578,7 +1579,7 @@ RefPtr<API::Navigation> WebPageProxy::launchProcessForReload()
     auto publicSuffix = WebCore::PublicSuffixStore::singleton().publicSuffix(URL(backForwardList->currentItem()->url()));
 
     // We allow stale content when reloading a WebProcess that's been killed or crashed.
-    send(Messages::WebPage::GoToBackForwardItem({ navigation->navigationID(), backForwardList->currentItem()->itemID(), FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No, std::nullopt, m_lastNavigationWasAppInitiated, std::nullopt, publicSuffix, { } }));
+    send(Messages::WebPage::GoToBackForwardItem({ navigation->navigationID(), backForwardList->currentItem()->rootFrameState(), FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No, std::nullopt, m_lastNavigationWasAppInitiated, std::nullopt, publicSuffix, { } }));
 
     Ref legacyMainFrameProcess = m_legacyMainFrameProcess;
     legacyMainFrameProcess->startResponsivenessTimer();
@@ -1942,6 +1943,11 @@ WebProcessProxy& WebPageProxy::ensureRunningProcess()
         launchProcess(Site(aboutBlankURL()), ProcessLaunchReason::InitialProcess);
 
     return m_legacyMainFrameProcess;
+}
+
+Ref<WebProcessProxy> WebPageProxy::ensureProtectedRunningProcess()
+{
+    return ensureRunningProcess();
 }
 
 RefPtr<API::Navigation> WebPageProxy::loadRequest(WebCore::ResourceRequest&& request, ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy, IsPerformingHTTPFallback isPerformingHTTPFallback, std::unique_ptr<NavigationActionData>&& lastNavigationAction, API::Object* userData)
@@ -2504,7 +2510,7 @@ RefPtr<API::Navigation> WebPageProxy::goToBackForwardItem(WebBackForwardListItem
     process->markProcessAsRecentlyUsed();
 
     auto publicSuffix = WebCore::PublicSuffixStore::singleton().publicSuffix(URL(item.url()));
-    process->send(Messages::WebPage::GoToBackForwardItem({ navigation->navigationID(), frameItem.rootFrame().identifier(), frameLoadType, ShouldTreatAsContinuingLoad::No, std::nullopt, m_lastNavigationWasAppInitiated, std::nullopt, WTFMove(publicSuffix), { } }), webPageIDInProcess(process));
+    process->send(Messages::WebPage::GoToBackForwardItem({ navigation->navigationID(), frameItem.rootFrame().frameState(), frameLoadType, ShouldTreatAsContinuingLoad::No, std::nullopt, m_lastNavigationWasAppInitiated, std::nullopt, WTFMove(publicSuffix), { } }), webPageIDInProcess(process));
     process->startResponsivenessTimer();
 
     return RefPtr<API::Navigation> { WTFMove(navigation) };
@@ -3337,7 +3343,7 @@ void WebPageProxy::selectAll()
 
 static std::optional<DOMPasteAccessCategory> pasteAccessCategoryForCommand(const String& commandName)
 {
-    static NeverDestroyed<UncheckedKeyHashMap<String, DOMPasteAccessCategory, ASCIICaseInsensitiveHash>> pasteCommandNames = UncheckedKeyHashMap<String, DOMPasteAccessCategory, ASCIICaseInsensitiveHash> {
+    static NeverDestroyed<HashMap<String, DOMPasteAccessCategory, ASCIICaseInsensitiveHash>> pasteCommandNames = HashMap<String, DOMPasteAccessCategory, ASCIICaseInsensitiveHash> {
         { "Paste"_s, DOMPasteAccessCategory::General },
         { "PasteAndMatchStyle"_s, DOMPasteAccessCategory::General },
         { "PasteAsQuotation"_s, DOMPasteAccessCategory::General },
@@ -4717,9 +4723,10 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
         replacedDataStoreForWebArchiveLoad
     ] (Ref<WebProcessProxy>&& processNavigatingTo, SuspendedPageProxy* destinationSuspendedPage, ASCIILiteral reason) mutable {
         // If the navigation has been destroyed or the frame has been replaced by PSON, then no need to proceed.
+        auto currentMainFrameID = m_mainFrame ? std::optional<WebCore::FrameIdentifier> { m_mainFrame->frameID() } : std::nullopt;
         if (isClosed()
             || !navigationState().hasNavigation(navigation->navigationID())
-            || (frame->isMainFrame() && frame.ptr() != m_mainFrame.get())) {
+            || (navigationAction->mainFrameIDBeforeNavigationActionDecision() && navigationAction->mainFrameIDBeforeNavigationActionDecision() != currentMainFrameID)) {
             receivedPolicyDecision(policyAction, navigation.ptr(), navigation->protectedWebsitePolicies().get(), WTFMove(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, WTFMove(message), WTFMove(completionHandler));
             return;
         }
@@ -5200,7 +5207,7 @@ RefPtr<API::Navigation> WebPageProxy::restoreFromSessionState(SessionState sessi
         backForwardList->restoreFromState(WTFMove(sessionState.backForwardListState));
         // If the process is not launched yet, the session will be restored when sending the WebPageCreationParameters;
         if (hasRunningProcess())
-            send(Messages::WebPage::RestoreSession(backForwardList->itemStates()));
+            backForwardList->setItemsAsRestoredFromSession();
 
         auto transaction = internals().pageLoadState.transaction();
         internals().pageLoadState.setCanGoBack(transaction, backForwardList->backItem());
@@ -7555,7 +7562,10 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     && navigationActionData.navigationType != WebCore::NavigationType::BackForward;
 
     RefPtr userInitiatedActivity = process->userInitiatedActivity(navigationActionData.userGestureTokenIdentifier);
-    Ref navigationAction = API::NavigationAction::create(WTFMove(navigationActionData), sourceFrameInfo.get(), destinationFrameInfo.ptr(), String(), ResourceRequest(request), originalRequest.url(), shouldOpenAppLinks, WTFMove(userInitiatedActivity), mainFrameNavigation.get());
+    std::optional<WebCore::FrameIdentifier> currentMainFrameIdentifier;
+    if (frame.isMainFrame() && m_mainFrame)
+        currentMainFrameIdentifier = m_mainFrame->frameID();
+    Ref navigationAction = API::NavigationAction::create(WTFMove(navigationActionData), sourceFrameInfo.get(), destinationFrameInfo.ptr(), String(), ResourceRequest(request), originalRequest.url(), shouldOpenAppLinks, WTFMove(userInitiatedActivity), mainFrameNavigation.get(), currentMainFrameIdentifier);
 
 #if ENABLE(CONTENT_FILTERING)
     if (frame.didHandleContentFilterUnblockNavigation(request)) {
@@ -8900,20 +8910,22 @@ PlatformXRSystem* WebPageProxy::xrSystem() const
 
 void WebPageProxy::restartXRSessionActivityOnProcessResumeIfNeeded()
 {
-    if (xrSystem() && xrSystem()->hasActiveSession())
-        xrSystem()->ensureImmersiveSessionActivity();
+    if (RefPtr xrSystem = internals().xrSystem; xrSystem && xrSystem->hasActiveSession())
+        xrSystem->ensureImmersiveSessionActivity();
 }
 #endif
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
-void WebPageProxy::showColorPicker(const WebCore::Color& initialColor, const IntRect& elementRect, Vector<WebCore::Color>&& suggestions)
+void WebPageProxy::showColorPicker(const WebCore::Color& initialColor, const IntRect& elementRect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions)
 {
+    MESSAGE_CHECK(m_legacyMainFrameProcess, supportsAlpha == ColorControlSupportsAlpha::No || m_preferences->inputTypeColorEnhancementsEnabled());
+
     RefPtr pageClient = this->pageClient();
     if (!pageClient)
         return;
 
-    internals().colorPicker = pageClient->createColorPicker(this, initialColor, elementRect, WTFMove(suggestions));
+    internals().colorPicker = pageClient->createColorPicker(this, initialColor, elementRect, supportsAlpha, WTFMove(suggestions));
     internals().colorPicker->showColorPicker(initialColor);
 }
 
@@ -9258,7 +9270,7 @@ void WebPageProxy::backForwardAddItemShared(IPC::Connection& connection, FrameId
 
     if (RefPtr targetFrame = WebFrameProxy::webFrame(targetFrameID)) {
         if (RefPtr pendingChildBackForwardItem = targetFrame->takePendingChildBackForwardItem())
-            return pendingChildBackForwardItem->addChild(WTFMove(rootFrameState));
+            return pendingChildBackForwardItem->setChild(WTFMove(rootFrameState));
     }
 
     RefPtr provisionalPage = m_provisionalPage;
@@ -9277,7 +9289,7 @@ void WebPageProxy::backForwardAddItemShared(IPC::Connection& connection, FrameId
 void WebPageProxy::backForwardSetChildItem(BackForwardItemIdentifier identifier, Ref<FrameState>&& frameState)
 {
     if (RefPtr frameItem = WebBackForwardListFrameItem::itemForID(identifier))
-        frameItem->addChild(WTFMove(frameState));
+        frameItem->setChild(WTFMove(frameState));
 }
 
 void WebPageProxy::backForwardGoToItem(const BackForwardItemIdentifier& itemID, CompletionHandler<void(const WebBackForwardListCounts&)>&& completionHandler)
@@ -9332,15 +9344,15 @@ void WebPageProxy::backForwardClearProvisionalItem(IPC::Connection& connection, 
         protectedBackForwardList()->clearProvisionalItem(*frameItem);
 }
 
-void WebPageProxy::backForwardItemAtIndex(int32_t index, FrameIdentifier frameID, CompletionHandler<void(std::optional<BackForwardItemIdentifier>&&)>&& completionHandler)
+void WebPageProxy::backForwardItemAtIndex(int32_t index, FrameIdentifier frameID, CompletionHandler<void(RefPtr<FrameState>&&)>&& completionHandler)
 {
     // FIXME: This should verify that the web process requesting the item hosts the specified frame.
     if (RefPtr item = protectedBackForwardList()->itemAtIndex(index)) {
         if (auto* childFrameItem = item->rootFrameItem().childItemForFrameID(frameID))
-            return completionHandler(childFrameItem->identifier());
-        completionHandler(item->itemID());
+            return completionHandler(&childFrameItem->frameState());
+        completionHandler(&item->rootFrameState());
     } else
-        completionHandler(std::nullopt);
+        completionHandler(nullptr);
 }
 
 void WebPageProxy::backForwardListCounts(CompletionHandler<void(WebBackForwardListCounts&&)>&& completionHandler)
@@ -10848,8 +10860,8 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
     m_speechRecognitionPermissionManager = nullptr;
 
 #if ENABLE(WEBXR) && !USE(OPENXR)
-    if (internals().xrSystem) {
-        internals().xrSystem->invalidate();
+    if (RefPtr xrSystem = internals().xrSystem) {
+        xrSystem->invalidate();
         internals().xrSystem = nullptr;
     }
 #endif
@@ -11047,6 +11059,8 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
         userContentController = userContentControllerFromWebsitePolicies.releaseNonNull();
     process.addWebUserContentControllerProxy(userContentController);
 
+    protectedBackForwardList()->setItemsAsRestoredFromSession();
+
     RefPtr pageClient = this->pageClient();
 
     WebPageCreationParameters parameters {
@@ -11090,8 +11104,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.pageLength = m_pageLength;
     parameters.gapBetweenPages = m_gapBetweenPages;
     parameters.userAgent = userAgent();
-    parameters.itemStatesWereRestoredByAPIRequest = m_sessionStateWasRestoredByAPIRequest;
-    parameters.itemStates = protectedBackForwardList()->itemStates();
     parameters.canRunBeforeUnloadConfirmPanel = m_uiClient->canRunBeforeUnloadConfirmPanel();
     parameters.canRunModal = m_canRunModal;
     parameters.deviceScaleFactor = deviceScaleFactor();
@@ -12794,7 +12806,7 @@ void WebPageProxy::firstRectForCharacterRangeAsync(const EditingRange& range, Co
     sendWithAsyncReply(Messages::WebPage::FirstRectForCharacterRangeAsync(range), WTFMove(callbackFunction));
 }
 
-void WebPageProxy::setCompositionAsync(const String& text, const Vector<CompositionUnderline>& underlines, const Vector<CompositionHighlight>& highlights, const UncheckedKeyHashMap<String, Vector<CharacterRange>>& annotations, const EditingRange& selectionRange, const EditingRange& replacementRange)
+void WebPageProxy::setCompositionAsync(const String& text, const Vector<CompositionUnderline>& underlines, const Vector<CompositionHighlight>& highlights, const HashMap<String, Vector<CharacterRange>>& annotations, const EditingRange& selectionRange, const EditingRange& replacementRange)
 {
     if (!hasRunningProcess()) {
         // If this fails, we should call -discardMarkedText on input context to notify the input method.
@@ -13628,12 +13640,24 @@ bool WebPageProxy::useElevatedUserInterfaceLevel() const
     return pageClient && pageClient->effectiveUserInterfaceLevelIsElevated();
 }
 
-void WebPageProxy::effectiveAppearanceDidChange()
+void WebPageProxy::setUseColorAppearance(bool useDarkAppearance, bool useElevatedUserInterfaceLevel)
 {
     if (!hasRunningProcess())
         return;
 
-    send(Messages::WebPage::EffectiveAppearanceDidChange(useDarkAppearance(), useElevatedUserInterfaceLevel()));
+    forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+        webProcess.send(Messages::WebPage::SetUseColorAppearance(useDarkAppearance, useElevatedUserInterfaceLevel), pageID);
+    });
+}
+
+void WebPageProxy::setUseDarkAppearanceForTesting(bool useDarkAppearance)
+{
+    setUseColorAppearance(useDarkAppearance, useElevatedUserInterfaceLevel());
+}
+
+void WebPageProxy::effectiveAppearanceDidChange()
+{
+    setUseColorAppearance(useDarkAppearance(), useElevatedUserInterfaceLevel());
 }
 
 DataOwnerType WebPageProxy::dataOwnerForPasteboard(PasteboardAccessIntent intent) const
@@ -14223,8 +14247,8 @@ WindowKind WebPageProxy::windowKind() const
 
 void WebPageProxy::webViewDidMoveToWindow()
 {
-    m_webViewDidMoveToWindowObservers.forEach([](auto& observer) {
-        observer.webViewDidMoveToWindow();
+    m_webViewDidMoveToWindowObservers.forEach([](Ref<WebViewDidMoveToWindowObserver> observer) {
+        observer->webViewDidMoveToWindow();
     });
 
     RefPtr pageClient = this->pageClient();
