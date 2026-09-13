@@ -779,6 +779,182 @@ list(APPEND WebKit_DERIVED_SOURCES
 # Generated JSWebExtension*.mm IDL bindings need -fobjc-arc; route to WebKitARC.
 list(APPEND WebKit_ARC_SOURCES ${WebKit_DERIVED_SOURCES_DIR}/JSWebExtensionAPIUnified.mm)
 
+# libWebKitSwift
+
+set(_wks_dir "${WEBKIT_DIR}/WebKitSwift")
+
+set(WebKitSwift_LIBRARY_TYPE SHARED)
+WEBKIT_LIBRARY_DECLARE(WebKitSwift)
+
+set(WebKitSwift_SOURCES
+    ${_wks_dir}/WebKitSwift.swift
+    ${_wks_dir}/AVKit/WKSExperienceController.swift
+    ${_wks_dir}/CredentialUpdaterShim.swift
+    ${_wks_dir}/GroupActivities/WKGroupSession.swift
+    ${_wks_dir}/IdentityDocumentServices/ISO18013MobileDocumentRequest+Extras.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentController.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentMobileDocumentRequest.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentMobileDocumentRequest+Extras.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentRawRequest.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentRequest.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentResponse.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentRawRequestValidator.swift
+    ${_wks_dir}/LinearMediaKit/LinearMediaPlayer.swift
+    ${_wks_dir}/LinearMediaKit/LinearMediaTypes.swift
+    ${_wks_dir}/MarketplaceKit/WKMarketplaceKit.swift
+    ${_wks_dir}/Preview/WKPreviewWindowController.swift
+    ${_wks_dir}/RealityKit/WKRKEntity.swift
+    ${_wks_dir}/StageMode/WKStageMode.swift
+    ${_wks_dir}/TextAnimation/WKTextAnimationManagerIOS.swift
+    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentError.mm
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/ModelBridge.swift
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/ModelParameters.swift
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/ModelRenderer.swift
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/ModelUtils.swift
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/USDModel.swift
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model/USDModel+Deformation.swift
+)
+
+set_target_properties(WebKitSwift PROPERTIES
+    OUTPUT_NAME WebKitSwift
+    PREFIX "lib"
+    SUFFIX ".dylib"
+    Swift_MODULE_NAME WebKitSwift
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}"
+    # INSTALL_NAME_DIR of Configurations/WebKitSwift.xcconfig.
+    MACOSX_RPATH OFF
+    BUILD_WITH_INSTALL_NAME_DIR ON
+    INSTALL_NAME_DIR "/System/Library/Frameworks/WebKit.framework/${WEBKIT_FRAMEWORK_VERSION_PATH}Frameworks"
+)
+
+# WebKitAdditions ships these Swift sources with a .swift.in extension so a build
+# without the internal SDK leaves them out. DerivedSources.make copies them into
+# the derived sources directory for the Xcode build; do the same here, or the
+# declarations they implement compile but have no implementation at runtime.
+if (WEBKIT_SDK_IS_IOS_FAMILY AND USE_APPLE_INTERNAL_SDK)
+    foreach (_additions_swift_source
+        AppKitGesturesExtras
+        TestWebKitAPILibraryAdditions
+        UIWindowScene+Extras
+        WKSExperienceController+Transitions
+        WKWebView+SystemTextExtraction)
+        add_custom_command(
+            OUTPUT ${WebKit_DERIVED_SOURCES_DIR}/${_additions_swift_source}.swift
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${WebKitAdditions_HEADERS_DIR}/${_additions_swift_source}.swift.in
+                ${WebKit_DERIVED_SOURCES_DIR}/${_additions_swift_source}.swift
+            DEPENDS
+                ${WebKitAdditions_HEADERS_DIR}/${_additions_swift_source}.swift.in
+                WebKitAdditions_CopyHeaders
+            COMMENT "Copying ${_additions_swift_source}.swift"
+            VERBATIM
+        )
+    endforeach ()
+
+    list(APPEND WebKit_SOURCES
+        ${WebKit_DERIVED_SOURCES_DIR}/AppKitGesturesExtras.swift
+        ${WebKit_DERIVED_SOURCES_DIR}/TestWebKitAPILibraryAdditions.swift
+        ${WebKit_DERIVED_SOURCES_DIR}/UIWindowScene+Extras.swift
+        ${WebKit_DERIVED_SOURCES_DIR}/WKWebView+SystemTextExtraction.swift
+    )
+    target_sources(WebKitSwift PRIVATE
+        ${WebKit_DERIVED_SOURCES_DIR}/WKSExperienceController+Transitions.swift
+    )
+endif ()
+
+target_include_directories(WebKitSwift PRIVATE
+    ${_wks_dir}
+    ${_wks_dir}/AVKit
+    ${_wks_dir}/GroupActivities
+    ${_wks_dir}/IdentityDocumentServices
+    ${_wks_dir}/LinearMediaKit
+    ${_wks_dir}/MarketplaceKit
+    ${_wks_dir}/Preview
+    ${_wks_dir}/RealityKit
+    ${_wks_dir}/StageMode
+    ${_wks_dir}/TextAnimation
+    ${_wks_dir}/WritingTools
+    ${WEBKIT_DIR}
+    ${WEBKIT_DIR}/Shared/Model
+    ${WEBKIT_DIR}/GPUProcess/graphics/Model
+    ${CMAKE_BINARY_DIR}
+    ${WTF_FRAMEWORK_HEADERS_DIR}
+    ${bmalloc_FRAMEWORK_HEADERS_DIR}
+)
+
+webkit_target_add_swift_options(WebKitSwift
+    -parse-as-library
+    "-library-level other"
+    "@${CMAKE_CURRENT_BINARY_DIR}/WebKit.platform-swift-args.resp"
+    -I${WEBKIT_DIR}/Platform/spi/Cocoa
+    -I${WEBKIT_DIR}/Platform/spi/Cocoa/Modules
+    -I${WEBKIT_DIR}/Platform/spi/ios
+    "-Xcc -DHAVE_CONFIG_H=1"
+    "-Xcc -I${CMAKE_BINARY_DIR}"
+    "-Xcc -I${WTF_FRAMEWORK_HEADERS_DIR}"
+    "-Xcc -I${bmalloc_FRAMEWORK_HEADERS_DIR}"
+)
+
+if (WEBKIT_SDK_IS_IOS_FAMILY)
+set(_swift_tba_resp "${CMAKE_CURRENT_BINARY_DIR}/swift-tba-availability-macros.resp")
+if (WEBKIT_SDK_IS_SIMULATOR)
+    set(_swift_tba_platform "iphonesimulator")
+else ()
+    set(_swift_tba_platform "iphoneos")
+endif ()
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env
+        WK_PLATFORM_NAME=${_swift_tba_platform}
+        IPHONEOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
+        # LLVM_TARGET_TRIPLE_OS_VERSION is only used by iOS code (to
+        # disambiguate between iOS and Catalyst).
+        LLVM_TARGET_TRIPLE_OS_VERSION=ios${CMAKE_OSX_DEPLOYMENT_TARGET}
+        MACOSX_DEPLOYMENT_TARGET=9999
+        XROS_DEPLOYMENT_TARGET=9999
+        BUILT_PRODUCTS_DIR=${CMAKE_BINARY_DIR}
+        SDKROOT=${CMAKE_OSX_SYSROOT}
+        SCRIPT_OUTPUT_FILE_0=${_swift_tba_resp}
+        WK_LIBRARY_HEADERS_FOLDER_PATH=/usr/local/include
+        WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH=${CMAKE_OSX_SYSROOT}/usr/local/include/WebKitAdditions
+        bash ${WEBKIT_DIR}/Scripts/generate-swift-availability-macros
+    RESULT_VARIABLE _swift_tba_resp_result
+    OUTPUT_VARIABLE _swift_tba_resp_stdout
+    ERROR_VARIABLE _swift_tba_resp_stderr)
+if (NOT _swift_tba_resp_result EQUAL 0 OR NOT EXISTS "${_swift_tba_resp}")
+    message(FATAL_ERROR "generate-swift-availability-macros failed (exit ${_swift_tba_resp_result}).\nstdout:\n${_swift_tba_resp_stdout}\nstderr:\n${_swiftui_resp_stderr}")
+endif ()
+unset(_swift_tba_platform)
+unset(_swift_tba_resp_stdout)
+unset(_swift_tba_resp_stderr)
+unset(_swift_tba_resp_result)
+
+webkit_target_add_swift_options(WebKitSwift
+    "@${_swift_tba_resp}"
+)
+endif ()
+
+target_compile_options(WebKitSwift PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-std=c++2b>"
+    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-DHAVE_CONFIG_H=1>"
+    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-DBUILDING_WITH_CMAKE=1>"
+)
+
+target_compile_options(WebKitSwift PRIVATE
+    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-iframework${CMAKE_BINARY_DIR}>"
+    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-I${WebKit_FRAMEWORK_HEADERS_DIR}>"
+    "$<$<COMPILE_LANGUAGE:Swift>:-F${CMAKE_LIBRARY_OUTPUT_DIRECTORY}>"
+    ${WEBKIT_PRIVATE_FRAMEWORKS_COMPILE_FLAG}
+)
+
+target_link_libraries(WebKitSwift PRIVATE WebKit)
+add_dependencies(WebKitSwift WebKit)
+
+# WebKit.framework's own signature does not cover this file: the
+# Frameworks/libWebKitSwift.dylib inside the bundle is a symlink to it.
+WEBKIT_LIBRARY(WebKitSwift)
+
+unset(_wks_dir)
+
 # Platform-specific configuration, selected by the target SDK.
 # FIXME: Continue merging forked iOS/Mac code here.
 if (WEBKIT_SDK_IS_IOS_FAMILY)
@@ -1153,38 +1329,6 @@ set_target_properties(WebKit PROPERTIES
     OBJCXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
-
-set(_swift_tba_resp "${CMAKE_CURRENT_BINARY_DIR}/swift-tba-availability-macros.resp")
-if (WEBKIT_SDK_IS_SIMULATOR)
-    set(_swift_tba_platform "iphonesimulator")
-else ()
-    set(_swift_tba_platform "iphoneos")
-endif ()
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E env
-        WK_PLATFORM_NAME=${_swift_tba_platform}
-        IPHONEOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
-        # LLVM_TARGET_TRIPLE_OS_VERSION is only used by iOS code (to
-        # disambiguate between iOS and Catalyst).
-        LLVM_TARGET_TRIPLE_OS_VERSION=ios${CMAKE_OSX_DEPLOYMENT_TARGET}
-        MACOSX_DEPLOYMENT_TARGET=9999
-        XROS_DEPLOYMENT_TARGET=9999
-        BUILT_PRODUCTS_DIR=${CMAKE_BINARY_DIR}
-        SDKROOT=${CMAKE_OSX_SYSROOT}
-        SCRIPT_OUTPUT_FILE_0=${_swift_tba_resp}
-        WK_LIBRARY_HEADERS_FOLDER_PATH=/usr/local/include
-        WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH=${CMAKE_OSX_SYSROOT}/usr/local/include/WebKitAdditions
-        bash ${WEBKIT_DIR}/Scripts/generate-swift-availability-macros
-    RESULT_VARIABLE _swift_tba_resp_result
-    OUTPUT_VARIABLE _swift_tba_resp_stdout
-    ERROR_VARIABLE _swift_tba_resp_stderr)
-if (NOT _swift_tba_resp_result EQUAL 0 OR NOT EXISTS "${_swift_tba_resp}")
-    message(FATAL_ERROR "generate-swift-availability-macros failed (exit ${_swift_tba_resp_result}).\nstdout:\n${_swift_tba_resp_stdout}\nstderr:\n${_swiftui_resp_stderr}")
-endif ()
-unset(_swift_tba_platform)
-unset(_swift_tba_resp_stdout)
-unset(_swift_tba_resp_stderr)
-unset(_swift_tba_resp_result)
 
 webkit_target_add_swift_options(WebKit
     # Match Xcode iOS WebKit Swift compile flags from
@@ -2232,140 +2376,6 @@ with open(sys.argv[2], 'wb') as f:
     add_dependencies(WebKitPostBuild WebKit WebProcess NetworkProcess
         WebProcessEnhancedSecurity WebProcessCaptivePortal)
 endfunction()
-
-# libWebKitSwift
-
-set(_wks_dir "${WEBKIT_DIR}/WebKitSwift")
-
-set(WebKitSwift_LIBRARY_TYPE SHARED)
-WEBKIT_LIBRARY_DECLARE(WebKitSwift)
-
-set(WebKitSwift_SOURCES
-    ${_wks_dir}/WebKitSwift.swift
-    ${_wks_dir}/AVKit/WKSExperienceController.swift
-    ${_wks_dir}/CredentialUpdaterShim.swift
-    ${_wks_dir}/GroupActivities/WKGroupSession.swift
-    ${_wks_dir}/IdentityDocumentServices/ISO18013MobileDocumentRequest+Extras.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentController.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentMobileDocumentRequest.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentMobileDocumentRequest+Extras.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentRawRequest.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentRequest.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentResponse.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentRawRequestValidator.swift
-    ${_wks_dir}/LinearMediaKit/LinearMediaPlayer.swift
-    ${_wks_dir}/LinearMediaKit/LinearMediaTypes.swift
-    ${_wks_dir}/MarketplaceKit/WKMarketplaceKit.swift
-    ${_wks_dir}/Preview/WKPreviewWindowController.swift
-    ${_wks_dir}/RealityKit/WKRKEntity.swift
-    ${_wks_dir}/StageMode/WKStageMode.swift
-    ${_wks_dir}/TextAnimation/WKTextAnimationManagerIOS.swift
-    ${_wks_dir}/IdentityDocumentServices/WKIdentityDocumentPresentmentError.mm
-)
-
-set_target_properties(WebKitSwift PROPERTIES
-    OUTPUT_NAME WebKitSwift
-    PREFIX "lib"
-    SUFFIX ".dylib"
-    Swift_MODULE_NAME WebKitSwift
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}"
-    # INSTALL_NAME_DIR of Configurations/WebKitSwift.xcconfig.
-    MACOSX_RPATH OFF
-    BUILD_WITH_INSTALL_NAME_DIR ON
-    INSTALL_NAME_DIR "/System/Library/Frameworks/WebKit.framework/${WEBKIT_FRAMEWORK_VERSION_PATH}Frameworks"
-)
-
-# WebKitAdditions ships these Swift sources with a .swift.in extension so a build
-# without the internal SDK leaves them out. DerivedSources.make copies them into
-# the derived sources directory for the Xcode build; do the same here, or the
-# declarations they implement compile but have no implementation at runtime.
-if (USE_APPLE_INTERNAL_SDK)
-    foreach (_additions_swift_source
-        AppKitGesturesExtras
-        TestWebKitAPILibraryAdditions
-        UIWindowScene+Extras
-        WKSExperienceController+Transitions
-        WKWebView+SystemTextExtraction)
-        add_custom_command(
-            OUTPUT ${WebKit_DERIVED_SOURCES_DIR}/${_additions_swift_source}.swift
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${WebKitAdditions_HEADERS_DIR}/${_additions_swift_source}.swift.in
-                ${WebKit_DERIVED_SOURCES_DIR}/${_additions_swift_source}.swift
-            DEPENDS
-                ${WebKitAdditions_HEADERS_DIR}/${_additions_swift_source}.swift.in
-                WebKitAdditions_CopyHeaders
-            COMMENT "Copying ${_additions_swift_source}.swift"
-            VERBATIM
-        )
-    endforeach ()
-
-    list(APPEND WebKit_SOURCES
-        ${WebKit_DERIVED_SOURCES_DIR}/AppKitGesturesExtras.swift
-        ${WebKit_DERIVED_SOURCES_DIR}/TestWebKitAPILibraryAdditions.swift
-        ${WebKit_DERIVED_SOURCES_DIR}/UIWindowScene+Extras.swift
-        ${WebKit_DERIVED_SOURCES_DIR}/WKWebView+SystemTextExtraction.swift
-    )
-    target_sources(WebKitSwift PRIVATE
-        ${WebKit_DERIVED_SOURCES_DIR}/WKSExperienceController+Transitions.swift
-    )
-endif ()
-
-target_include_directories(WebKitSwift PRIVATE
-    ${_wks_dir}
-    ${_wks_dir}/AVKit
-    ${_wks_dir}/GroupActivities
-    ${_wks_dir}/IdentityDocumentServices
-    ${_wks_dir}/LinearMediaKit
-    ${_wks_dir}/MarketplaceKit
-    ${_wks_dir}/Preview
-    ${_wks_dir}/RealityKit
-    ${_wks_dir}/StageMode
-    ${_wks_dir}/TextAnimation
-    ${_wks_dir}/WritingTools
-    ${WEBKIT_DIR}
-    ${WEBKIT_DIR}/Shared/Model
-    ${WEBKIT_DIR}/GPUProcess/graphics/Model
-    ${CMAKE_BINARY_DIR}
-    ${WTF_FRAMEWORK_HEADERS_DIR}
-    ${bmalloc_FRAMEWORK_HEADERS_DIR}
-)
-
-webkit_target_add_swift_options(WebKitSwift
-    -parse-as-library
-    "-library-level other"
-    "-Xfrontend -disable-cross-import-overlays"
-    "@${CMAKE_CURRENT_BINARY_DIR}/WebKit.platform-swift-args.resp"
-    "@${_swift_tba_resp}"
-    -I${WEBKIT_DIR}/Platform/spi/Cocoa
-    -I${WEBKIT_DIR}/Platform/spi/Cocoa/Modules
-    -I${WEBKIT_DIR}/Platform/spi/ios
-    "-Xcc -DHAVE_CONFIG_H=1"
-    "-Xcc -I${CMAKE_BINARY_DIR}"
-    "-Xcc -I${WTF_FRAMEWORK_HEADERS_DIR}"
-    "-Xcc -I${bmalloc_FRAMEWORK_HEADERS_DIR}"
-)
-
-target_compile_options(WebKitSwift PRIVATE
-    "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-std=c++2b>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-DHAVE_CONFIG_H=1>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-DBUILDING_WITH_CMAKE=1>"
-)
-
-target_compile_options(WebKitSwift PRIVATE
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-iframework${CMAKE_BINARY_DIR}>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-I${WebKit_FRAMEWORK_HEADERS_DIR}>"
-    "$<$<COMPILE_LANGUAGE:Swift>:-F${CMAKE_LIBRARY_OUTPUT_DIRECTORY}>"
-    ${WEBKIT_PRIVATE_FRAMEWORKS_COMPILE_FLAG}
-)
-
-target_link_libraries(WebKitSwift PRIVATE WebKit)
-add_dependencies(WebKitSwift WebKit)
-
-# WebKit.framework's own signature does not cover this file: the
-# Frameworks/libWebKitSwift.dylib inside the bundle is a symlink to it.
-WEBKIT_LIBRARY(WebKitSwift)
-
-unset(_wks_dir)
 
 # _WebKit_SwiftUI
 
